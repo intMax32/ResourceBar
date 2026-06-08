@@ -461,7 +461,7 @@ final class ResourceBarApp: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 540, height: 250)
+        popover.contentSize = NSSize(width: 760, height: 300)
         popover.contentViewController = contentController
     }
 
@@ -553,7 +553,7 @@ final class ResourceToolbarViewController: NSViewController {
             rootStack.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -12),
             rootStack.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
             rootStack.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -12),
-            metricsStack.heightAnchor.constraint(equalToConstant: 192)
+            metricsStack.heightAnchor.constraint(equalToConstant: 232)
         ])
 
         view = rootView
@@ -653,13 +653,13 @@ final class MetricTileView: NSView {
         progressIndicator.controlSize = .small
         progressIndicator.style = .bar
 
-        topHeaderLabel.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        topHeaderLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         topHeaderLabel.textColor = .tertiaryLabelColor
 
         let leadersStack = NSStackView(views: leaderRows)
         leadersStack.orientation = .vertical
         leadersStack.alignment = .width
-        leadersStack.spacing = 3
+        leadersStack.spacing = 4
 
         let stack = NSStackView(views: [titleLabel, valueLabel, detailLabel, progressIndicator, topHeaderLabel, leadersStack])
         stack.orientation = .vertical
@@ -731,12 +731,12 @@ final class LeaderRowView: NSView {
     }
 
     private func setup() {
-        nameLabel.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        nameLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
         nameLabel.textColor = .labelColor
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        valueLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        valueLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         valueLabel.textColor = .secondaryLabelColor
         valueLabel.alignment = .right
         valueLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -754,7 +754,7 @@ final class LeaderRowView: NSView {
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: 14)
+            heightAnchor.constraint(equalToConstant: 17)
         ])
     }
 
