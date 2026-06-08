@@ -1,11 +1,26 @@
 import AppKit
+import Darwin
 import Foundation
 import IOKit
+
+struct AppResourceUsage {
+    let name: String
+    let cpuPercent: Double
+    let memoryBytes: UInt64
+}
+
+struct ResourceLeader {
+    let name: String
+    let value: String
+}
 
 struct ResourceSnapshot {
     let cpuPercent: Double?
     let memory: MemorySample?
     let gpuPercent: Double?
+    let topCPUApps: [AppResourceUsage]
+    let topRAMApps: [AppResourceUsage]
+    let topGPUApps: [AppResourceUsage]
     let capturedAt: Date
 }
 
@@ -23,12 +38,18 @@ struct MemorySample {
 final class ResourceMonitor {
     private let cpuMonitor = CPUMonitor()
     private let gpuMonitor = GPUMonitor()
+    private let processMonitor = ProcessResourceMonitor()
 
     func sample() -> ResourceSnapshot {
-        ResourceSnapshot(
+        let processSample = processMonitor.sample()
+
+        return ResourceSnapshot(
             cpuPercent: cpuMonitor.sample(),
             memory: MemoryMonitor.sample(),
             gpuPercent: gpuMonitor.sample(),
+            topCPUApps: processSample.topCPUApps,
+            topRAMApps: processSample.topRAMApps,
+            topGPUApps: [],
             capturedAt: Date()
         )
     }
@@ -166,6 +187,164 @@ enum MemoryMonitor {
     }
 }
 
+final class ProcessResourceMonitor {
+    private struct ProcessSnapshot {
+        let name: String
+        let cpuTimeNanoseconds: UInt64
+        let memoryBytes: UInt64
+    }
+
+    private struct AppAggregate {
+        var cpuPercent: Double = 0
+        var memoryBytes: UInt64 = 0
+    }
+
+    private var previousSnapshotsByPID: [pid_t: ProcessSnapshot] = [:]
+    private var previousSampleDate: Date?
+
+    func sample() -> (topCPUApps: [AppResourceUsage], topRAMApps: [AppResourceUsage]) {
+        let now = Date()
+        let snapshotsByPID = collectProcessSnapshots()
+        let interval = previousSampleDate.map { now.timeIntervalSince($0) } ?? 0
+        var aggregatesByName: [String: AppAggregate] = [:]
+
+        for (pid, snapshot) in snapshotsByPID {
+            var aggregate = aggregatesByName[snapshot.name] ?? AppAggregate()
+            aggregate.memoryBytes += snapshot.memoryBytes
+
+            if interval > 0, let previousSnapshot = previousSnapshotsByPID[pid] {
+                let currentTime = snapshot.cpuTimeNanoseconds
+                let previousTime = previousSnapshot.cpuTimeNanoseconds
+                let timeDelta = currentTime > previousTime ? currentTime - previousTime : 0
+                aggregate.cpuPercent += Double(timeDelta) / 1_000_000_000 / interval * 100
+            }
+
+            aggregatesByName[snapshot.name] = aggregate
+        }
+
+        previousSnapshotsByPID = snapshotsByPID
+        previousSampleDate = now
+
+        let usages = aggregatesByName.map { name, aggregate in
+            AppResourceUsage(
+                name: name,
+                cpuPercent: aggregate.cpuPercent,
+                memoryBytes: aggregate.memoryBytes
+            )
+        }
+
+        let topCPUApps = interval > 0
+            ? usages
+                .filter { $0.cpuPercent >= 0.1 }
+                .sorted { $0.cpuPercent == $1.cpuPercent ? $0.name < $1.name : $0.cpuPercent > $1.cpuPercent }
+                .prefix(3)
+            : []
+
+        let topRAMApps = usages
+            .filter { $0.memoryBytes > 0 }
+            .sorted { $0.memoryBytes == $1.memoryBytes ? $0.name < $1.name : $0.memoryBytes > $1.memoryBytes }
+            .prefix(3)
+
+        return (Array(topCPUApps), Array(topRAMApps))
+    }
+
+    private func collectProcessSnapshots() -> [pid_t: ProcessSnapshot] {
+        let pidByteCount = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
+        guard pidByteCount > 0 else {
+            return [:]
+        }
+
+        let pidCapacity = Int(pidByteCount) / MemoryLayout<pid_t>.stride
+        var pids = [pid_t](repeating: 0, count: pidCapacity)
+        let returnedByteCount = pids.withUnsafeMutableBytes { buffer in
+            proc_listpids(UInt32(PROC_ALL_PIDS), 0, buffer.baseAddress, Int32(buffer.count))
+        }
+        let returnedCount = max(0, Int(returnedByteCount) / MemoryLayout<pid_t>.stride)
+        var snapshotsByPID: [pid_t: ProcessSnapshot] = [:]
+
+        for pid in pids.prefix(returnedCount) where pid > 0 {
+            guard let snapshot = snapshot(for: pid) else {
+                continue
+            }
+
+            snapshotsByPID[pid] = snapshot
+        }
+
+        return snapshotsByPID
+    }
+
+    private func snapshot(for pid: pid_t) -> ProcessSnapshot? {
+        var taskInfo = proc_taskinfo()
+        let taskInfoSize = MemoryLayout<proc_taskinfo>.stride
+        let result = withUnsafeMutablePointer(to: &taskInfo) { pointer in
+            proc_pidinfo(pid, PROC_PIDTASKINFO, 0, pointer, Int32(taskInfoSize))
+        }
+
+        guard result == Int32(taskInfoSize) else {
+            return nil
+        }
+
+        let name = displayName(for: pid)
+        guard !name.isEmpty else {
+            return nil
+        }
+
+        return ProcessSnapshot(
+            name: name,
+            cpuTimeNanoseconds: taskInfo.pti_total_user + taskInfo.pti_total_system,
+            memoryBytes: taskInfo.pti_resident_size
+        )
+    }
+
+    private func displayName(for pid: pid_t) -> String {
+        if let appName = appBundleName(for: pid) {
+            return appName
+        }
+
+        if let runningApp = NSRunningApplication(processIdentifier: pid),
+           let localizedName = runningApp.localizedName,
+           !localizedName.isEmpty {
+            return localizedName
+        }
+
+        return processName(for: pid) ?? "PID \(pid)"
+    }
+
+    private func appBundleName(for pid: pid_t) -> String? {
+        let pathBufferSize = 4096
+        var pathBuffer = [CChar](repeating: 0, count: pathBufferSize)
+        let result = pathBuffer.withUnsafeMutableBytes { buffer in
+            proc_pidpath(pid, buffer.baseAddress, UInt32(pathBufferSize))
+        }
+
+        guard result > 0 else {
+            return nil
+        }
+
+        let path = String(cString: pathBuffer)
+        let components = path.split(separator: "/")
+        guard let appComponent = components.first(where: { $0.hasSuffix(".app") }) else {
+            return nil
+        }
+
+        return String(appComponent.dropLast(4))
+    }
+
+    private func processName(for pid: pid_t) -> String? {
+        let nameBufferSize = 256
+        var nameBuffer = [CChar](repeating: 0, count: nameBufferSize)
+        let result = nameBuffer.withUnsafeMutableBytes { buffer in
+            proc_name(pid, buffer.baseAddress, UInt32(nameBufferSize))
+        }
+
+        guard result > 0 else {
+            return nil
+        }
+
+        return String(cString: nameBuffer)
+    }
+}
+
 final class GPUMonitor {
     private let performanceKeys = [
         "Device Utilization %",
@@ -282,7 +461,7 @@ final class ResourceBarApp: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 390, height: 170)
+        popover.contentSize = NSSize(width: 540, height: 250)
         popover.contentViewController = contentController
     }
 
@@ -374,7 +553,7 @@ final class ResourceToolbarViewController: NSViewController {
             rootStack.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -12),
             rootStack.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
             rootStack.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -12),
-            metricsStack.heightAnchor.constraint(equalToConstant: 112)
+            metricsStack.heightAnchor.constraint(equalToConstant: 192)
         ])
 
         view = rootView
@@ -384,27 +563,39 @@ final class ResourceToolbarViewController: NSViewController {
         cpuTile.update(
             value: ResourceFormat.percent(snapshot.cpuPercent),
             detail: "Total load",
-            progress: snapshot.cpuPercent
+            progress: snapshot.cpuPercent,
+            leaders: snapshot.topCPUApps.map {
+                ResourceLeader(name: $0.name, value: ResourceFormat.precisePercent($0.cpuPercent))
+            },
+            emptyText: "Sampling..."
         )
 
         if let memory = snapshot.memory {
             ramTile.update(
                 value: ResourceFormat.percent(memory.percent),
                 detail: "\(ResourceFormat.bytes(memory.usedBytes)) used, \(ResourceFormat.bytes(memory.reclaimableBytes)) cache",
-                progress: memory.percent
+                progress: memory.percent,
+                leaders: snapshot.topRAMApps.map {
+                    ResourceLeader(name: $0.name, value: ResourceFormat.bytes($0.memoryBytes))
+                },
+                emptyText: "No process data"
             )
         } else {
-            ramTile.update(value: "N/A", detail: "Unavailable", progress: nil)
+            ramTile.update(value: "N/A", detail: "Unavailable", progress: nil, leaders: [], emptyText: "No process data")
         }
 
         if let gpuPercent = snapshot.gpuPercent {
             gpuTile.update(
                 value: ResourceFormat.percent(gpuPercent),
                 detail: "IOKit counter",
-                progress: gpuPercent
+                progress: gpuPercent,
+                leaders: snapshot.topGPUApps.map {
+                    ResourceLeader(name: $0.name, value: ResourceFormat.precisePercent($0.cpuPercent))
+                },
+                emptyText: "Per-app N/A"
             )
         } else {
-            gpuTile.update(value: "N/A", detail: "No counter", progress: nil)
+            gpuTile.update(value: "N/A", detail: "No counter", progress: nil, leaders: [], emptyText: "Per-app N/A")
         }
 
         timestampLabel.stringValue = "Updated \(dateFormatter.string(from: snapshot.capturedAt))"
@@ -424,6 +615,8 @@ final class MetricTileView: NSView {
     private let valueLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let progressIndicator = NSProgressIndicator()
+    private let topHeaderLabel = NSTextField(labelWithString: "Top 3")
+    private let leaderRows = [LeaderRowView(), LeaderRowView(), LeaderRowView()]
 
     init(title: String) {
         super.init(frame: .zero)
@@ -460,10 +653,18 @@ final class MetricTileView: NSView {
         progressIndicator.controlSize = .small
         progressIndicator.style = .bar
 
-        let stack = NSStackView(views: [titleLabel, valueLabel, detailLabel, progressIndicator])
+        topHeaderLabel.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        topHeaderLabel.textColor = .tertiaryLabelColor
+
+        let leadersStack = NSStackView(views: leaderRows)
+        leadersStack.orientation = .vertical
+        leadersStack.alignment = .width
+        leadersStack.spacing = 3
+
+        let stack = NSStackView(views: [titleLabel, valueLabel, detailLabel, progressIndicator, topHeaderLabel, leadersStack])
         stack.orientation = .vertical
         stack.alignment = .width
-        stack.spacing = 7
+        stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(stack)
@@ -477,7 +678,7 @@ final class MetricTileView: NSView {
         ])
     }
 
-    func update(value: String, detail: String, progress: Double?) {
+    func update(value: String, detail: String, progress: Double?, leaders: [ResourceLeader], emptyText: String) {
         valueLabel.stringValue = value
         detailLabel.stringValue = detail
 
@@ -488,6 +689,78 @@ final class MetricTileView: NSView {
             progressIndicator.isHidden = true
             progressIndicator.doubleValue = 0
         }
+
+        updateLeaders(leaders, emptyText: emptyText)
+    }
+
+    private func updateLeaders(_ leaders: [ResourceLeader], emptyText: String) {
+        if leaders.isEmpty {
+            leaderRows[0].update(name: emptyText, value: "")
+            leaderRows[0].isHidden = false
+
+            for row in leaderRows.dropFirst() {
+                row.isHidden = true
+            }
+
+            return
+        }
+
+        for (index, row) in leaderRows.enumerated() {
+            if index < leaders.count {
+                row.update(name: leaders[index].name, value: leaders[index].value)
+                row.isHidden = false
+            } else {
+                row.isHidden = true
+            }
+        }
+    }
+}
+
+final class LeaderRowView: NSView {
+    private let nameLabel = NSTextField(labelWithString: "")
+    private let valueLabel = NSTextField(labelWithString: "")
+
+    init() {
+        super.init(frame: .zero)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        nameLabel.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        nameLabel.textColor = .labelColor
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        valueLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        valueLabel.textColor = .secondaryLabelColor
+        valueLabel.alignment = .right
+        valueLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let stack = NSStackView(views: [nameLabel, valueLabel])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            heightAnchor.constraint(equalToConstant: 14)
+        ])
+    }
+
+    func update(name: String, value: String) {
+        nameLabel.stringValue = name
+        valueLabel.stringValue = value
     }
 }
 
@@ -498,6 +771,14 @@ enum ResourceFormat {
         }
 
         return "\(Int(clampPercent(value).rounded()))%"
+    }
+
+    static func precisePercent(_ value: Double) -> String {
+        if value >= 10 {
+            return "\(Int(value.rounded()))%"
+        }
+
+        return String(format: "%.1f%%", max(0, value))
     }
 
     static func bytes(_ bytes: UInt64) -> String {
