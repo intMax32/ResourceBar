@@ -561,7 +561,8 @@ final class ResourceToolbarViewController: NSViewController {
             rootStack.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
             rootStack.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -12),
             metricsStack.heightAnchor.constraint(equalToConstant: 142),
-            topListsStack.heightAnchor.constraint(equalToConstant: 128)
+            topListsStack.heightAnchor.constraint(equalToConstant: 128),
+            cpuTopList.widthAnchor.constraint(equalTo: ramTopList.widthAnchor)
         ])
 
         view = rootView
@@ -821,27 +822,26 @@ final class LeaderRowView: NSView {
     private func setup() {
         nameLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
         nameLabel.textColor = .labelColor
+        nameLabel.alignment = .left
         nameLabel.lineBreakMode = .byTruncatingTail
         nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        nameLabel.translatesAutoresizingMaskIntoConstraints = false
 
         valueLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         valueLabel.textColor = .secondaryLabelColor
         valueLabel.alignment = .right
         valueLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        valueLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [nameLabel, valueLabel])
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(stack)
+        addSubview(nameLabel)
+        addSubview(valueLabel)
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            nameLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: valueLabel.leadingAnchor, constant: -10),
+            valueLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            valueLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightAnchor.constraint(equalToConstant: 17)
         ])
     }
