@@ -1,7 +1,7 @@
 # ResourceBar
 
 Small macOS menu bar app that shows current CPU usage as the menu bar title.
-Click the menu bar percentage to open a compact toolbar with CPU, RAM, GPU usage, and the top resource-consuming apps/processes.
+Click the menu bar percentage to open a compact toolbar with CPU, RAM, GPU usage, and wider CPU/RAM Top 3 app lists.
 
 ## Build
 

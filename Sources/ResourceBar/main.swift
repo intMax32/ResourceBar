@@ -461,7 +461,7 @@ final class ResourceBarApp: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 760, height: 300)
+        popover.contentSize = NSSize(width: 760, height: 360)
         popover.contentViewController = contentController
     }
 
@@ -506,6 +506,8 @@ final class ResourceToolbarViewController: NSViewController {
     private let cpuTile = MetricTileView(title: "CPU")
     private let ramTile = MetricTileView(title: "RAM")
     private let gpuTile = MetricTileView(title: "GPU")
+    private let cpuTopList = TopAppsListView(title: "CPU Top 3")
+    private let ramTopList = TopAppsListView(title: "RAM Top 3")
     private let timestampLabel = NSTextField(labelWithString: "")
     private let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -524,6 +526,11 @@ final class ResourceToolbarViewController: NSViewController {
         metricsStack.distribution = .fillEqually
         metricsStack.spacing = 8
 
+        let topListsStack = NSStackView(views: [cpuTopList, ramTopList])
+        topListsStack.orientation = .horizontal
+        topListsStack.distribution = .fillEqually
+        topListsStack.spacing = 10
+
         timestampLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         timestampLabel.textColor = .secondaryLabelColor
 
@@ -540,7 +547,7 @@ final class ResourceToolbarViewController: NSViewController {
         footerStack.alignment = .centerY
         footerStack.spacing = 8
 
-        let rootStack = NSStackView(views: [metricsStack, footerStack])
+        let rootStack = NSStackView(views: [metricsStack, topListsStack, footerStack])
         rootStack.orientation = .vertical
         rootStack.alignment = .width
         rootStack.spacing = 10
@@ -553,7 +560,8 @@ final class ResourceToolbarViewController: NSViewController {
             rootStack.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -12),
             rootStack.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
             rootStack.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -12),
-            metricsStack.heightAnchor.constraint(equalToConstant: 232)
+            metricsStack.heightAnchor.constraint(equalToConstant: 142),
+            topListsStack.heightAnchor.constraint(equalToConstant: 128)
         ])
 
         view = rootView
@@ -564,6 +572,10 @@ final class ResourceToolbarViewController: NSViewController {
             value: ResourceFormat.percent(snapshot.cpuPercent),
             detail: "Total load",
             progress: snapshot.cpuPercent,
+            leaders: nil,
+            emptyText: "Sampling..."
+        )
+        cpuTopList.update(
             leaders: snapshot.topCPUApps.map {
                 ResourceLeader(name: $0.name, value: ResourceFormat.precisePercent($0.cpuPercent))
             },
@@ -575,13 +587,18 @@ final class ResourceToolbarViewController: NSViewController {
                 value: ResourceFormat.percent(memory.percent),
                 detail: "\(ResourceFormat.bytes(memory.usedBytes)) used, \(ResourceFormat.bytes(memory.reclaimableBytes)) cache",
                 progress: memory.percent,
+                leaders: nil,
+                emptyText: "No process data"
+            )
+            ramTopList.update(
                 leaders: snapshot.topRAMApps.map {
                     ResourceLeader(name: $0.name, value: ResourceFormat.bytes($0.memoryBytes))
                 },
                 emptyText: "No process data"
             )
         } else {
-            ramTile.update(value: "N/A", detail: "Unavailable", progress: nil, leaders: [], emptyText: "No process data")
+            ramTile.update(value: "N/A", detail: "Unavailable", progress: nil, leaders: nil, emptyText: "No process data")
+            ramTopList.update(leaders: [], emptyText: "No process data")
         }
 
         if let gpuPercent = snapshot.gpuPercent {
@@ -698,6 +715,73 @@ final class MetricTileView: NSView {
     }
 
     private func updateLeaders(_ leaders: [ResourceLeader], emptyText: String) {
+        if leaders.isEmpty {
+            leaderRows[0].update(name: emptyText, value: "")
+            leaderRows[0].isHidden = false
+
+            for row in leaderRows.dropFirst() {
+                row.isHidden = true
+            }
+
+            return
+        }
+
+        for (index, row) in leaderRows.enumerated() {
+            if index < leaders.count {
+                row.update(name: leaders[index].name, value: leaders[index].value)
+                row.isHidden = false
+            } else {
+                row.isHidden = true
+            }
+        }
+    }
+}
+
+final class TopAppsListView: NSView {
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let leaderRows = [LeaderRowView(), LeaderRowView(), LeaderRowView()]
+
+    init(title: String) {
+        super.init(frame: .zero)
+        setup(title: title)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup(title: "")
+    }
+
+    private func setup(title: String) {
+        wantsLayer = true
+        layer?.cornerRadius = 8
+        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.72).cgColor
+
+        titleLabel.stringValue = title
+        titleLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        titleLabel.textColor = .secondaryLabelColor
+
+        let rowsStack = NSStackView(views: leaderRows)
+        rowsStack.orientation = .vertical
+        rowsStack.alignment = .width
+        rowsStack.spacing = 6
+
+        let stack = NSStackView(views: [titleLabel, rowsStack])
+        stack.orientation = .vertical
+        stack.alignment = .width
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)
+        ])
+    }
+
+    func update(leaders: [ResourceLeader], emptyText: String) {
         if leaders.isEmpty {
             leaderRows[0].update(name: emptyText, value: "")
             leaderRows[0].isHidden = false
