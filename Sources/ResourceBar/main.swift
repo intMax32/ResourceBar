@@ -461,7 +461,7 @@ final class ResourceBarApp: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 760, height: 380)
+        popover.contentSize = ResourceToolbarViewController.popoverSize
         popover.contentViewController = contentController
     }
 
@@ -493,6 +493,8 @@ final class ResourceBarApp: NSObject, NSApplicationDelegate {
             popover.performClose(sender)
         } else {
             refresh()
+            contentController.prepareForDisplay()
+            popover.contentSize = ResourceToolbarViewController.popoverSize
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
@@ -500,6 +502,8 @@ final class ResourceBarApp: NSObject, NSApplicationDelegate {
 }
 
 final class ResourceToolbarViewController: NSViewController {
+    static let popoverSize = NSSize(width: 760, height: 380)
+
     var onRefresh: (() -> Void)?
     var onQuit: (() -> Void)?
 
@@ -517,6 +521,7 @@ final class ResourceToolbarViewController: NSViewController {
 
     override func loadView() {
         let rootView = NSVisualEffectView()
+        rootView.frame = NSRect(origin: .zero, size: Self.popoverSize)
         rootView.material = .popover
         rootView.blendingMode = .behindWindow
         rootView.state = .active
@@ -525,6 +530,7 @@ final class ResourceToolbarViewController: NSViewController {
         metricsStack.orientation = .horizontal
         metricsStack.distribution = .fillEqually
         metricsStack.spacing = 8
+        metricsStack.translatesAutoresizingMaskIntoConstraints = false
 
         let topListsContainer = NSView()
         topListsContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -548,21 +554,22 @@ final class ResourceToolbarViewController: NSViewController {
         footerStack.orientation = .horizontal
         footerStack.alignment = .centerY
         footerStack.spacing = 8
+        footerStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let rootStack = NSStackView(views: [metricsStack, topListsContainer, footerStack])
-        rootStack.orientation = .vertical
-        rootStack.alignment = .width
-        rootStack.spacing = 10
-        rootStack.translatesAutoresizingMaskIntoConstraints = false
-
-        rootView.addSubview(rootStack)
+        rootView.addSubview(metricsStack)
+        rootView.addSubview(topListsContainer)
+        rootView.addSubview(footerStack)
 
         NSLayoutConstraint.activate([
-            rootStack.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 12),
-            rootStack.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -12),
-            rootStack.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
-            rootStack.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -12),
+            rootView.widthAnchor.constraint(equalToConstant: Self.popoverSize.width),
+            rootView.heightAnchor.constraint(equalToConstant: Self.popoverSize.height),
+            metricsStack.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 12),
+            metricsStack.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -12),
+            metricsStack.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
             metricsStack.heightAnchor.constraint(equalToConstant: 142),
+            topListsContainer.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 12),
+            topListsContainer.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -12),
+            topListsContainer.topAnchor.constraint(equalTo: metricsStack.bottomAnchor, constant: 10),
             topListsContainer.heightAnchor.constraint(equalToConstant: 150),
             cpuTopList.leadingAnchor.constraint(equalTo: topListsContainer.leadingAnchor),
             cpuTopList.topAnchor.constraint(equalTo: topListsContainer.topAnchor),
@@ -571,10 +578,21 @@ final class ResourceToolbarViewController: NSViewController {
             ramTopList.trailingAnchor.constraint(equalTo: topListsContainer.trailingAnchor),
             ramTopList.topAnchor.constraint(equalTo: topListsContainer.topAnchor),
             ramTopList.bottomAnchor.constraint(equalTo: topListsContainer.bottomAnchor),
-            cpuTopList.widthAnchor.constraint(equalTo: ramTopList.widthAnchor)
+            cpuTopList.widthAnchor.constraint(equalTo: ramTopList.widthAnchor),
+            footerStack.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 12),
+            footerStack.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -12),
+            footerStack.topAnchor.constraint(equalTo: topListsContainer.bottomAnchor, constant: 10),
+            footerStack.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -12)
         ])
 
+        preferredContentSize = Self.popoverSize
         view = rootView
+    }
+
+    func prepareForDisplay() {
+        preferredContentSize = Self.popoverSize
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
     }
 
     func update(with snapshot: ResourceSnapshot) {
