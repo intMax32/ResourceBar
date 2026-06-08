@@ -461,7 +461,7 @@ final class ResourceBarApp: NSObject, NSApplicationDelegate {
         }
 
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 760, height: 360)
+        popover.contentSize = NSSize(width: 760, height: 380)
         popover.contentViewController = contentController
     }
 
@@ -526,10 +526,12 @@ final class ResourceToolbarViewController: NSViewController {
         metricsStack.distribution = .fillEqually
         metricsStack.spacing = 8
 
-        let topListsStack = NSStackView(views: [cpuTopList, ramTopList])
-        topListsStack.orientation = .horizontal
-        topListsStack.distribution = .fillEqually
-        topListsStack.spacing = 10
+        let topListsContainer = NSView()
+        topListsContainer.translatesAutoresizingMaskIntoConstraints = false
+        cpuTopList.translatesAutoresizingMaskIntoConstraints = false
+        ramTopList.translatesAutoresizingMaskIntoConstraints = false
+        topListsContainer.addSubview(cpuTopList)
+        topListsContainer.addSubview(ramTopList)
 
         timestampLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         timestampLabel.textColor = .secondaryLabelColor
@@ -547,7 +549,7 @@ final class ResourceToolbarViewController: NSViewController {
         footerStack.alignment = .centerY
         footerStack.spacing = 8
 
-        let rootStack = NSStackView(views: [metricsStack, topListsStack, footerStack])
+        let rootStack = NSStackView(views: [metricsStack, topListsContainer, footerStack])
         rootStack.orientation = .vertical
         rootStack.alignment = .width
         rootStack.spacing = 10
@@ -561,7 +563,14 @@ final class ResourceToolbarViewController: NSViewController {
             rootStack.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 12),
             rootStack.bottomAnchor.constraint(equalTo: rootView.bottomAnchor, constant: -12),
             metricsStack.heightAnchor.constraint(equalToConstant: 142),
-            topListsStack.heightAnchor.constraint(equalToConstant: 128),
+            topListsContainer.heightAnchor.constraint(equalToConstant: 150),
+            cpuTopList.leadingAnchor.constraint(equalTo: topListsContainer.leadingAnchor),
+            cpuTopList.topAnchor.constraint(equalTo: topListsContainer.topAnchor),
+            cpuTopList.bottomAnchor.constraint(equalTo: topListsContainer.bottomAnchor),
+            cpuTopList.trailingAnchor.constraint(equalTo: ramTopList.leadingAnchor, constant: -10),
+            ramTopList.trailingAnchor.constraint(equalTo: topListsContainer.trailingAnchor),
+            ramTopList.topAnchor.constraint(equalTo: topListsContainer.topAnchor),
+            ramTopList.bottomAnchor.constraint(equalTo: topListsContainer.bottomAnchor),
             cpuTopList.widthAnchor.constraint(equalTo: ramTopList.widthAnchor)
         ])
 
