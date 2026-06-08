@@ -29,4 +29,4 @@ The app runs as a menu bar accessory. Use the popover's `Quit` button to close i
 - RAM uses Mach VM statistics and counts internal, wired, and compressed memory as used. File cache and purgeable memory are shown as cache instead of being counted as hard-used memory.
 - CPU and RAM Top 3 lists are sampled with macOS `libproc` process counters and grouped by `.app` bundle name when possible.
 - GPU usage uses IOKit `PerformanceStatistics` counters when macOS exposes them. Some Mac models or macOS versions may not expose a public percentage, in which case the app shows `N/A`.
-- Per-app GPU Top 3 is not exposed through stable public macOS APIs, so the GPU tile shows the overall GPU counter and marks per-app ranking as unavailable.
+- Per-app GPU Top 3 is not exposed through stable public macOS APIs, so the GPU tile only shows the overall GPU counter.

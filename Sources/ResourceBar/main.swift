@@ -589,13 +589,11 @@ final class ResourceToolbarViewController: NSViewController {
                 value: ResourceFormat.percent(gpuPercent),
                 detail: "IOKit counter",
                 progress: gpuPercent,
-                leaders: snapshot.topGPUApps.map {
-                    ResourceLeader(name: $0.name, value: ResourceFormat.precisePercent($0.cpuPercent))
-                },
-                emptyText: "Per-app N/A"
+                leaders: nil,
+                emptyText: ""
             )
         } else {
-            gpuTile.update(value: "N/A", detail: "No counter", progress: nil, leaders: [], emptyText: "Per-app N/A")
+            gpuTile.update(value: "N/A", detail: "No counter", progress: nil, leaders: nil, emptyText: "")
         }
 
         timestampLabel.stringValue = "Updated \(dateFormatter.string(from: snapshot.capturedAt))"
@@ -678,7 +676,7 @@ final class MetricTileView: NSView {
         ])
     }
 
-    func update(value: String, detail: String, progress: Double?, leaders: [ResourceLeader], emptyText: String) {
+    func update(value: String, detail: String, progress: Double?, leaders: [ResourceLeader]?, emptyText: String) {
         valueLabel.stringValue = value
         detailLabel.stringValue = detail
 
@@ -690,7 +688,13 @@ final class MetricTileView: NSView {
             progressIndicator.doubleValue = 0
         }
 
-        updateLeaders(leaders, emptyText: emptyText)
+        if let leaders {
+            topHeaderLabel.isHidden = false
+            updateLeaders(leaders, emptyText: emptyText)
+        } else {
+            topHeaderLabel.isHidden = true
+            leaderRows.forEach { $0.isHidden = true }
+        }
     }
 
     private func updateLeaders(_ leaders: [ResourceLeader], emptyText: String) {
